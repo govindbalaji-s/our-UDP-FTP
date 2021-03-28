@@ -48,12 +48,12 @@ class Chunk :
         self.payload = payload
         self.seq_num = seq_num
         
-class Header
+class Header :
     def__init__(self,number,name)
     self.noofchunks=number
     self.filename=name
 
-class Receiverstate:
+class Receiverstate :
     def __init__(self,header)
     self.header = header
     self.chunks = []  
