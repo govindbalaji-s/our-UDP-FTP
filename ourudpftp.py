@@ -55,14 +55,14 @@ def write_chunks(chunks_list: list[Chunk], filename: str):
         f.write(data)
     f.close()
         
-class Header :
+class Metadata :
     def __init__(self,number,name):
         self.noofchunks = number
         self.filename = name
 
 class Receiverstate :
-    def __init__(self,header):
-        self.header = header
+    def __init__(self,metadata):
+        self.metadata = metadata
         self.chunks = []  
         self.pending_chunks:set = set(range(len(self.chunks)))
         self.temp_filepath
