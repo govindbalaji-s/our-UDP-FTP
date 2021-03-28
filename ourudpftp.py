@@ -42,3 +42,8 @@ class CongestionState:
         self.addconst:int = 1
         self.ssthresh:int = 1
         self.is_slow_start:bool = True
+            
+class Chunk :
+    def __init__(self, payload, seq_num):
+        self.payload = payload
+        self.seq_num = seq_num
