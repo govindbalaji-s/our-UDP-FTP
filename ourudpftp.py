@@ -57,12 +57,21 @@ def write_chunks(chunks_list: list[Chunk], filename: str):
         
 class Header :
     def __init__(self,number,name):
-    self.noofchunks = number
-    self.filename = name
+        self.noofchunks = number
+        self.filename = name
 
 class Receiverstate :
     def __init__(self,header):
-    self.header = header
-    self.chunks = []  
-    self.pending_chunks:set = set(range(len(self.chunks)))
-    self.temp_filepath
+        self.header = header
+        self.chunks = []  
+        self.pending_chunks:set = set(range(len(self.chunks)))
+        self.temp_filepath
+
+class Packet :
+    def __init__(self,payload,seqnum,type_):
+        self.payload = payload
+        self.version = 1
+        self.type_ = type_
+        self.seqnum = seqnum
+        self.payloadlength = len(payload)
+        self.checksum = 0
