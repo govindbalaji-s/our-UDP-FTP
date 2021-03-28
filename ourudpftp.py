@@ -44,9 +44,16 @@ class CongestionState:
         self.is_slow_start:bool = True
             
 class Chunk :
-    def __init__(self, payload, seq_num):
+    def __init__(self, payload:bytes, seq_num:int):
         self.payload = payload
         self.seq_num = seq_num
+
+def write_chunks(chunks_list: list[Chunk], filename: str):
+    f = open(filename, "wb")
+    for chunk in chunks_list:
+        data = chunk.payload
+        f.write(data)
+    f.close()
         
 class Header :
     def __init__(self,number,name):
