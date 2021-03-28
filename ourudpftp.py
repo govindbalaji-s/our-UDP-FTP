@@ -55,18 +55,34 @@ class CongestionState:
         self.is_slow_start:bool = True
             
 class Chunk :
-    def __init__(self, payload, seq_num):
+    def __init__(self, payload:bytes, seq_num:int):
         self.payload = payload
         self.seq_num = seq_num
+
+def write_chunks(chunks_list: list[Chunk], filename: str):
+    f = open(filename, "wb")
+    for chunk in chunks_list:
+        data = chunk.payload
+        f.write(data)
+    f.close()
         
-class Header :
+class Metadata :
     def __init__(self,number,name):
-        self.noofchunks=number
-        self.filename=name
+        self.noofchunks = number
+        self.filename = name
 
 class Receiverstate :
-    def __init__(self,header):
-        self.header = header
+    def __init__(self,metadata):
+        self.metadata = metadata
         self.chunks = []  
         self.pending_chunks:set = set(range(len(self.chunks)))
         self.temp_filepath
+
+class Packet :
+    def __init__(self,payload,seqnum,type_):
+        self.payload = payload
+        self.version = 1
+        self.type_ = type_
+        self.seqnum = seqnum
+        self.payloadlength = len(payload)
+        self.checksum = 0
