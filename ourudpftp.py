@@ -2,6 +2,7 @@ V1_CHUNK_SIZE = 504
 
 import threading
 import math
+from BitVector import BitVector
 
 def sendto(fname, dest)):
     ip, port = dest
@@ -86,3 +87,8 @@ class Packet :
         self.seqnum = seqnum
         self.payloadlength = len(payload)
         self.checksum = 0
+
+    def to_bytes(self) -> bytes:
+        first = (self.version << 28) + (self.type << 26) + 
+                (self.payloadlength << 16) + self.checksum
+        return bytes([first, self.seqnum]) + self.payload
