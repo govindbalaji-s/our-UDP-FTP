@@ -47,3 +47,15 @@ class Chunk :
     def __init__(self, payload, seq_num):
         self.payload = payload
         self.seq_num = seq_num
+        
+class Header
+    def__init__(self,number,name)
+    self.noofchunks=number
+    self.filename=name
+
+class Receiverstate:
+    def __init__(self,header)
+    self.header = header
+    self.chunks = []  
+    self.pending_chunks:set = set(range(len(self.chunks)))
+    self.temp_filepath
