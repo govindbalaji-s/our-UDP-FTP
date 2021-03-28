@@ -1,6 +1,7 @@
 V1_CHUNK_SIZE = 504
 
 import threading
+import math
 
 def sendto(fname, dest)):
     ip, port = dest
@@ -23,15 +24,25 @@ def recv_at(src):
 
 class SenderState:
     
-    def __init__(self, data:bytes)
+    def __init__(self, data:bytes):
         self.data:bytes = data
-        self.chunks = []
-        ## TODO compute chunks
-        ## for i in 
+        self.populate_chunks()
         self.unacked_chunks:set = set(range(len(self.chunks)))
         self.congestion:CongestionState = CongestionState()
         #self.flow = FlowState() TODO add flow control
         self.timers:list[threading.Timer] = [] 
+
+    # Breaks self.data into self.chunks
+    def populate_chunks(self) -> None:
+        self.chunks = []
+        seqnum = 0
+        ptr = 0
+        while ptr < len(self.data):
+            till = math.min(ptr + V1_CHUNK_SIZE, len(self.data))
+            self.chunks.append(Chunk(data[ptr:till], seqnum))
+            seqnum += 1
+            ptr = till
+
 
     def ack_received():
         # update unacked chunks
@@ -49,13 +60,13 @@ class Chunk :
         self.seq_num = seq_num
         
 class Header :
-    def__init__(self,number,name)
-    self.noofchunks=number
-    self.filename=name
+    def __init__(self,number,name):
+        self.noofchunks=number
+        self.filename=name
 
 class Receiverstate :
-    def __init__(self,header)
-    self.header = header
-    self.chunks = []  
-    self.pending_chunks:set = set(range(len(self.chunks)))
-    self.temp_filepath
+    def __init__(self,header):
+        self.header = header
+        self.chunks = []  
+        self.pending_chunks:set = set(range(len(self.chunks)))
+        self.temp_filepath
