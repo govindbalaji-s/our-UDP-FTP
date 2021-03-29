@@ -45,22 +45,22 @@ class SenderState:
             ptr = till
 
 
-    def ack_received():
+    def ack_received(self):
         # update unacked chunks
 
 class CongestionState:
-    def __init__():
+    def __init__(self):
         self.cwnd:int = 0
         self.addconst:int = 1
         self.ssthresh:int = 1
         self.is_slow_start:bool = True
             
 class Chunk :
-    def __init__(self, payload:bytes, seq_num:int):
+    def __init__(self, payload, seq_num:int):
         self.payload = payload
         self.seq_num = seq_num
 
-def write_chunks(chunks_list: list[Chunk], filename: str):
+def write_chunks(chunks_list, filename: str):
     f = open(filename, "wb")
     for chunk in chunks_list:
         data = chunk.payload
@@ -68,12 +68,12 @@ def write_chunks(chunks_list: list[Chunk], filename: str):
     f.close()
         
 class Metadata :
-    def __init__(self,number,name):
+    def __init__(self, number:int, name:str):
         self.noofchunks = number
         self.filename = name
 
 class Receiverstate :
-    def __init__(self,metadata):
+    def __init__(self, metadata):
         self.metadata = metadata
         self.chunks = []  
         self.pending_chunks:set = set(range(len(self.chunks)))
@@ -113,10 +113,10 @@ class Packet :
 
 		return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
 
-	def calc_paylen():
+	def calc_paylen(self):
 		self.payload_length = len(self.payload)
 
-	def calc_checksum():
+	def calc_checksum(self):
 		self.checksum = 0
 		## Calculate checksum
 
