@@ -80,20 +80,43 @@ class Receiverstate :
         self.temp_filepath
 
 class Packet :
-    def __init__(self,payload,seqnum,type_):
-        self.payload = payload
-        self.version = 1
-        self.type_ = type_
-        self.seqnum = seqnum
-        self.payloadlength = len(payload)
-        self.checksum = 0
+	def __init__(self, type:int, seqnum:int, payload, payload_length:int=None, checksum:int=None):
+		self.version = 1
+		self.type_ = type_
+		self.payload_length = payload_length
+		self.checksum = checksum
+		self.seqnum = seqnum
+		self.payload = payload
 
-    def to_bytes(self) -> bytes:
+	@classmethod
+	def fromVals(cls, type_:int, seqnum:int, payload):  ## Creating Packet at Sender
+		pkt = cls(type_=type_, seqnum=seqnum, payload=payload)
+		pkt.calc_paylen()
+		pkt.calc_checksum()
+		return pkt
+
+	@classmethod
+	def fromBytes(cls, data):  ## Creating packet at Receiver
+		version = data[0] >> 4
+		type_ = (data[0] >> 2) & 3
+		payload_length = ((data[0] & 3) << 8) + data[1]
+		checksum = int(data[2:4])
+		seqnum = int(data[4:8])
+		payload = data[8:]
+		return cls(type_, seqnum, payload, payload_length, checksum)
+
+	def to_bytes(self):
         # 4 bits version, 2 bits type, 10 bits payload length
-        
         ## Error handle version, type etc ranges TODO
         first = (self.version << 28) + (self.type << 26) + 
-                (self.payloadlength << 16) + self.checksum
+                (self.payload_length << 16) + self.checksum
 
         return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
+
+	def calc_paylen():
+		self.payload_length = len(self.payload)
+
+	def calc_checksum():
+		self.checksum = 0
+		## Calculate checksum
 
