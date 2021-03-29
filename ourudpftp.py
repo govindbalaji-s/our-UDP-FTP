@@ -89,6 +89,11 @@ class Packet :
         self.checksum = 0
 
     def to_bytes(self) -> bytes:
+        # 4 bits version, 2 bits type, 10 bits payload length
+        
+        ## Error handle version, type etc ranges TODO
         first = (self.version << 28) + (self.type << 26) + 
                 (self.payloadlength << 16) + self.checksum
-        return bytes([first, self.seqnum]) + self.payload
+
+        return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
+
