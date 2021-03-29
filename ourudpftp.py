@@ -1,7 +1,13 @@
+V1_MAX_MSG_SIZE = 512
 V1_CHUNK_SIZE = 504
+V1_TYPE_MDATA = 0
+V1_TYPE_DATA = 1
+V1_TYPE_MDATA_ACK = 2
+V1_TYPE_DATA_ACK = 3
 
 import threading
 import math
+import socket
 from BitVector import BitVector
 
 def sendto(fname, dest)):
@@ -23,15 +29,42 @@ def recv_at(src):
     #
     #
 
-class SenderState:
+class Sender:
     
-    def __init__(self, data:bytes):
-        self.data:bytes = data
+    def __init__(self, myaddr:(str, int), dest:(str, int), fname:str):
+        self.myaddr = myaddr
+        self.dest:(str, int) = dest
+        self.fname:str = fname
+        with open(fname, 'rb') as file:
+            self.data:bytes = file.read()
         self.populate_chunks()
         self.unacked_chunks:set = set(range(len(self.chunks)))
         self.congestion:CongestionState = CongestionState()
         #self.flow = FlowState() TODO add flow control
+        self.timeoutval = 0.2
         self.timers:list[threading.Timer] = [] 
+
+    def do_handshake():
+        mdata = Metadata(len(self.chunks), self.fname)
+        pload = mdata.to_bytes()
+        mdpkt = Packet.fromVals(V1_TYPE_MDATA, 0, pload)
+
+        sock = socket.socket(socket.AF_INET, sock.SOCK_DGRAM)
+        sock.bind(self.myaddr)
+        sock.settimeout(self.timeoutval) # Initial value 0.2ms
+
+        while True:
+            try:
+                sock.sendto(mdpkt.to_bytes(), self.dest)
+                data, src = sock.recvfrom(512)
+                ackpkt = Packet.fromBytes(data)
+                if ackpkt.verify_checksum() and ackpkt.type == V1_TYPE_MDATA_ACK:
+                    break
+
+            except socket.timeout:
+                continue
+
+
 
     # Breaks self.data into self.chunks
     def populate_chunks(self) -> None:
@@ -54,7 +87,8 @@ class CongestionState:
         self.addconst:int = 1
         self.ssthresh:int = 1
         self.is_slow_start:bool = True
-            
+    
+
 class Chunk :
     def __init__(self, payload, seq_num:int):
         self.payload = payload
@@ -141,4 +175,7 @@ def calc_checksum(msg:bytes):
         next_word = msg[i]
         s = add_carry(s, next_word)
     return ~s & 0xffff
+
+    def verify_checksum():
+        ##
 
