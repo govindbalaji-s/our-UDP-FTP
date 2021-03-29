@@ -106,12 +106,12 @@ class Packet :
 		return cls(type_, seqnum, payload, payload_length, checksum)
 
 	def to_bytes(self):
-        # 4 bits version, 2 bits type, 10 bits payload length
-        ## Error handle version, type etc ranges TODO
-        first = (self.version << 28) + (self.type << 26) + 
-                (self.payload_length << 16) + self.checksum
+		# 4 bits version, 2 bits type, 10 bits payload length
+		## Error handle version, type etc ranges TODO
+		first = (self.version << 28) + (self.type << 26) + 
+			(self.payload_length << 16) + self.checksum
 
-        return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
+		return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
 
 	def calc_paylen():
 		self.payload_length = len(self.payload)
