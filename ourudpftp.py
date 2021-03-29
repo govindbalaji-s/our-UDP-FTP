@@ -63,7 +63,37 @@ class Sender:
 
             except socket.timeout:
                 continue
+				
+	def send_data():    #func to start sending data, and recieving ACKs for sent data.
+        
+        def listen_for_acks():
+            while True:
+                data, src = sock.recvfrom(512)
+                ackpkt = Packet.fromBytes(data)
+                ##verify ack packet appriately
+                if ackpkt.verify_checksum() and ackpkt.type == V1_TYPE_MDATA_ACK:
+                    ##lock here?
+                    self.unacked_chunks.discard(ackpkt.seqnum)  ##if already acked, then does nothing
+                else:
+                    ##Do nothing??
+                if len(self.unacked_chunks) == 0:
+                    break
+        
+        thread_ACK = threading.Thread(target=listen_for_acks)
+        thread_ACK.start()
+        
+        for seq_num in self.unacked_chunks: ##How do we put a lock here? (:
+            utp_pkt = Packet(type_ = 1 , seqnum = seq_num, payload = self.chunks[seq_num], checksum = 0)
+            utp_pkt.calc_paylen()
+            test_msg = utp_pkt.to_bytes()   ##test_msg has checksum = 0, and is entirely in bytes
+            utp_pkt.calc_checksum()         ##Checksum computed and updated
 
+            sock = socket.socket(socket.AF_INET, sock.SOCK_DGRAM)
+            sock.bind(self.myaddr)
+            sock.sendto(utp_pkt.to_bytes(), self.dest)
+            ##Ig some sort of timeout here before sending again?
+		
+		thread_ACK.join()
 
 
     # Breaks self.data into self.chunks
