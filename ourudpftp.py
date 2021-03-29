@@ -68,9 +68,18 @@ def write_chunks(chunks_list, filename: str):
     f.close()
         
 class Metadata :
-    def __init__(self, number:int, name:str):
-        self.noofchunks = number
+    def __init__(self,number,name):
+        self.numchunks = number
         self.filename = name
+    
+    @classmethod
+    def fromBytes(cls,data):
+        numchunks = int(data[0:4])
+        filename = str(data[4:504])
+        return cls(numchunks, filename)
+
+    def tobytes(self) -> bytes:
+        return self.numchunks.to_bytes(4, 'big') + self.filename.to_bytes(500, 'big')
 
 class Receiverstate :
     def __init__(self, metadata):
