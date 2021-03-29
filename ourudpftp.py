@@ -116,7 +116,20 @@ class Packet :
 	def calc_paylen(self):
 		self.payload_length = len(self.payload)
 
-	def calc_checksum(self):
-		self.checksum = 0
+	#def calc_checksum(self):
+		#self.checksum = 0
 		## Calculate checksum
+		
+def calc_checksum(msg:bytes):
+
+    #msg in bytes
+    def add_carry(a, b):
+        c = a + b
+        return (c & 0xffff) + (c >> 16) #carry bit wrapped around
+
+    s = add_carry(msg[0],msg[1])
+    for i in range(2, len(msg)):
+        next_word = msg[i]
+        s = add_carry(s, next_word)
+    return ~s & 0xffff
 
