@@ -63,7 +63,33 @@ class Sender:
 
             except socket.timeout:
                 continue
-
+				
+	def send_data():    #func to start sending data, and recieving ACKs for sent data.
+        
+        def listen_for_acks():
+            while True:
+                data, src = sock.recvfrom(512)
+                ackpkt = Packet.fromBytes(data)
+                ##verify ack packet appriately
+                if ackpkt.verify_checksum() and ackpkt.type == V1_TYPE_MDATA_ACK:
+                    ##lock here?
+                    self.unacked_chunks.discard(ackpkt.seqnum)  ##if already acked, then does nothing
+                else:
+                    ##Do nothing??
+                if len(self.unacked_chunks) == 0:
+                    break
+        
+        thread_ACK = threading.Thread(target=listen_for_acks)
+        thread_ACK.start()
+        
+        for seq_num in self.unacked_chunks: ##How do we put a lock here? (:
+            utp_pkt = Packet.fromVals(type_ = 1 , seqnum = seq_num, payload = self.chunks[seq_num]) #fromVals takes care of checksumcalculation
+            sock = socket.socket(socket.AF_INET, sock.SOCK_DGRAM)
+            sock.bind(self.myaddr)
+            sock.sendto(utp_pkt.to_bytes(), self.dest)
+            ##Ig some sort of timeout here before sending again?
+			
+		thread_ACK.join()
 
 
     # Breaks self.data into self.chunks
@@ -148,7 +174,8 @@ class Packet :
 	def fromVals(cls, type_:int, seqnum:int, payload):  ## Creating Packet at Sender
 		pkt = cls(type_=type_, seqnum=seqnum, payload=payload)
 		pkt.calc_paylen()
-		pkt.calc_checksum()
+        test_msg = pkt.to_bytes()
+		pkt.checksum = calc_checksum(test_msg)
 		return pkt
 
 	@classmethod
@@ -172,18 +199,20 @@ class Packet :
 	def calc_paylen(self):
 		self.payload_length = len(self.payload)
 
-	def calc_checksum(self, msg:bytes):
-		#self.checksum = 0
-		## Calculate checksum
-		def add_carry(a, b):
-		    c = a + b
-		    return (c & 0xffff) + (c >> 16) #carry bit wrapped around
-		s = 0
-		for i in range(0, len(msg), 2):
-		    next_word = (msg[i]<<8) + msg[i+1]
-		    s = add_carry(s, next_word)
-		self.checksum =  ~s & 0xffff
-		
+#keeping calc_checksum seperate
+def calc_checksum(msg:bytes):
+	#self.checksum = 0
+	## Calculate checksum
+	def add_carry(a, b):
+		c = a + b
+		return (c & 0xffff) + (c >> 16) #carry bit wrapped around
+	s = 0
+	#if len(msg)%2 == 0
+	for i in range(0, len(msg), 2):
+		next_word = (msg[i]<<8) + msg[i+1]
+		s = add_carry(s, next_word)
+	return ~s & 0xffff
+
 # def calc_checksum(self, msg:bytes):
 # 	#self.checksum = 0
 # 	## Calculate checksum
