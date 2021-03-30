@@ -116,11 +116,24 @@ class Metadata :
         return self.numchunks.to_bytes(4, 'big') + self.filename.to_bytes(500, 'big')
 
 class Receiverstate :
-    def __init__(self, metadata):
+    def __init__(self, metadata,myaddr:(str, int)):
         self.metadata = metadata
+        self.myaddr = myaddr
+        self.dest = dest
         self.chunks = []  
         self.pending_chunks:set = set(range(len(self.chunks)))
         self.temp_filepath
+
+    def do_handshake():
+        sock = socket.socket(socket.AF_INET, sock.SOCK_DGRAM)
+        sock.bind(self.myaddr)
+        while True:
+            data, self.src = sock.recvfrom(512)
+            Headerpkt = Packet.fromBytes(data)
+            if Headerpkt.verify_checksum() and Headerpkt.type == V1_TYPE_MDATA:
+                ackpt = Packet.fromVals(V1_TYPE_MDATA_ACK,Headerpkt.seqnum,int(0).to_bytes(0,'big'))
+                sck.sendto(ackpt.to_bytes(),self.src)
+                break
 
 class Packet :
 	def __init__(self, type:int, seqnum:int, payload, payload_length:int=None, checksum:int=None):
