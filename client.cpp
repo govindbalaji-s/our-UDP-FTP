@@ -49,7 +49,6 @@ int main(){
                 ourudpftp_sendto(fname, {myip, myport}, {ip, port});
                 cout << "Sent successfully\n";
 		}
-
         else if (out[0] == "exit"){  // close connection
             cout << "Exiting..\n";
             return 0;
