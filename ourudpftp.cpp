@@ -72,6 +72,21 @@ void std_sendto(int sd, vector<char> &msg, pair<string, int> dest) {
     if(sendto(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, sizeof(peer_addr)) < 0){}
 }
 
+void ourudpftp_sendto(string fname, pair<string, int> myaddr, pair<string, int> dest) {
+    sender = Sender(myaddr, dest, fname);
+    sender.do_handshake();
+    sender.send_data();
+    cout << "Done sending\n";
+}
+    
+void ourudpftp_recv_at(pair<string, int> myaddr) {
+    receiver = Receiver(myaddr)
+    receiver.do_handshake()
+    receiver.receive_data()
+    cout << "Done receiving\n";
+    receiver.write_chunks()
+}
+
 // Ignore this attempt to port
 class Sender{
     pair<string, int> myaddr, dest;
