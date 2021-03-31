@@ -7,6 +7,7 @@ V1_TYPE_DATA_ACK = 3
 
 import threading
 import socket
+import numpy as np
 
 def sendto(fname, myaddr, dest):
     sender = Sender(myaddr, dest, fname)
@@ -40,16 +41,18 @@ class Sender:
     
     def __init__(self, myaddr:(str, int), dest:(str, int), fname:str):
         self.myaddr = myaddr
-        self.dest:(str, int) = dest
-        self.fname:str = fname
+        self.dest = dest
+        self.fname = fname
         with open(fname, 'rb') as file:
-            self.data:bytes = file.read()
+            self.data = file.read()
         self.populate_chunks()
-        self.unacked_chunks:set = set(range(len(self.chunks)))
-        self.congestion:CongestionState = CongestionState()
+        #self.unacked_chunks = set(range(len(self.chunks)))
+        self.unacked_chunks = np.ones(len(self.chunks))
+
+        self.congestion = CongestionState()
         #self.flow = FlowState() TODO add flow control
         self.timeoutval = 0.2
-        self.timers:list[threading.Timer] = [] 
+        self.timers = [] 
 
     def do_handshake(self):
         mdata = Metadata(len(self.chunks), self.fname)
@@ -73,6 +76,7 @@ class Sender:
                 continue
             
         print("Handshake over")
+        sock.close()
 
     def send_data(self):    #func to start sending data, and recieving ACKs for sent data.
 
@@ -81,36 +85,43 @@ class Sender:
 
         def listen_for_acks():
             while True:
-                print("Remaining: " + str(len(self.unacked_chunks)))
+                #print("Remaining: " + (str(len(self.unacked_chunks)))
+                #print("Remaining: " + str(np.sum(self.unacked_chunks)))
                 data, src = sock.recvfrom(512)
                 ackpkt = Packet.fromBytes(data)
                 ##verify ack packet appriately
                 if ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK:
                     ##lock here?
-                    self.unacked_chunks.discard(ackpkt.seqnum)  ##if already acked, then does nothing
+                    #self.unacked_chunks.discard(ackpkt.seqnum)  ##if already acked, then does nothing
+                    self.unacked_chunks[ackpkt.seqnum] = 0
                 else:
                     pass
                     ##Do nothing??
-                if len(self.unacked_chunks) == 0:
+                #if len(self.unacked_chunks) == 0:
+                if np.sum(self.unacked_chunks) == 0:
                     break
 
         thread_ACK = threading.Thread(target=listen_for_acks)
         thread_ACK.start()
 
-        unacked_iter = iter(self.unacked_chunks)
-        while len(self.unacked_chunks) > 0:
-        ##How do we put a lock here? (:
-            try:
-                seq_num = next(unacked_iter)
-                utp_pkt = Packet.fromVals(type_ = 1 , seqnum = seq_num, payload = self.chunks[seq_num].payload) #fromVals takes care of checksumcalculation            utp_pkt.calc_paylen()
-                ##Checksum computed and updated
+        # unacked_iter = iter(self.unacked_chunks)
+        # while len(self.unacked_chunks) > 0:
+        # ##How do we put a lock here? (:
+        #     try:
+        #         ----------
+        #     except StopIteration:
+        #         unacked_iter = iter(self.unacked_chunks)
+        while np.sum(self.unacked_chunks) > 0:
+            for seq_num in range(len(self.unacked_chunks)):
+                if self.unacked_chunks[seq_num]:
+                    utp_pkt = Packet.fromVals(type_ = 1 , seqnum = seq_num, payload = self.chunks[seq_num].payload) #fromVals takes care of checksumcalculation            utp_pkt.calc_paylen()
+                    ##Checksum computed and updated
 
-                sock.sendto(utp_pkt.to_bytes(), self.dest)
-                ##Ig some sort of timeout here before sending again?
-            except StopIteration:
-                unacked_iter = iter(self.unacked_chunks)
+                    sock.sendto(utp_pkt.to_bytes(), self.dest)
+                    ##Ig some sort of timeout here before sending again?
 
         thread_ACK.join()
+        sock.close()
 
 
     # Breaks self.data into self.chunks
@@ -131,10 +142,10 @@ class Sender:
 
 class CongestionState:
     def __init__(self):
-        self.cwnd:int = 0
-        self.addconst:int = 1
-        self.ssthresh:int = 1
-        self.is_slow_start:bool = True
+        self.cwnd = 0
+        self.addconst = 1
+        self.ssthresh = 1
+        self.is_slow_start = True
     
 
 class Chunk :
@@ -163,7 +174,7 @@ class Receiver:
         self.metadata = None
         self.myaddr = myaddr
         self.chunks = []  
-        self.pending_chunks:set = set(range(len(self.chunks)))
+        self.pending_chunks = set(range(len(self.chunks)))
 
     def do_handshake(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -182,13 +193,14 @@ class Receiver:
         self.chunks = [None for _ in range(self.metadata.numchunks)]  # Initialize list of chunks
         self.pending_chunks = set(range(self.metadata.numchunks))  # Initialize list of pending chunks
         print("Handshake done")
+        sock.close()
     
     def receive_data(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(self.myaddr)
 
         while len(self.pending_chunks) > 0:  # While chunks are still pending
-            print("Remaining: " + str(len(self.pending_chunks)))
+           # print("Remaining: " + str(len(self.pending_chunks)))
 
             data, self.src = sock.recvfrom(512)
             pkt = Packet.fromBytes(data)
@@ -203,6 +215,7 @@ class Receiver:
                 ackpt = Packet.fromVals(V1_TYPE_DATA_ACK, seqnum, int(0).to_bytes(0,'big'))
                 sock.sendto(ackpt.to_bytes(),self.src)
                 self.pending_chunks.discard(seqnum)
+        sock.close()
 
     def write_chunks(self):
         f = open('r'+self.metadata.filename, "wb")
