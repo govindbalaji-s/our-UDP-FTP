@@ -191,6 +191,71 @@ struct Chunk{
     Chunk(vector<char> &pload, long sn)
         : payload(pload), seq_num(sn) {}
 };
+
+class Receiver{
+	pair<string, int> myaddr, dest;
+	vector<Chunk> chunks;
+	set<long> pending_chunks;
+	int count = 0;
+
+public:
+	 Receiver(pair<string,int>myaddr_,pair<string,int>dest_){
+	 	myaddr = myaddr_;
+	 	dest = dest_
+
+	 }
+
+	 void do_handshake(){
+       auto sock = setup_std_sock(myaddr);
+
+       while(true){
+       	vector<char>msg(512);
+       	auto src = std_recvfrom(sock, msg);
+       	if(src.first == TIMEOUT_IP)
+       		continue;
+       	auto HeaderPkt = Packet(msg);
+       	if(HeaderPkt.verify_checksum() and HeaderPkt.type_ = V1_TYPE_MDATA)
+       	{
+            for(int i=0;i<HeaderPkt.numchunks;i++)
+        	{
+        		pending_chunks.insert(i);
+        	}
+       		vector<char> temp;
+       		auto ackpacket = Packet(V1_TYPE_MDATA_ACK,HeaderPkt.seqnum,temp);
+       		std_sendto(sock,ackpacket.to_bytes(),dest);
+       		break;
+       	}
+       }
+
+	 }
+
+	 void receive_data{
+	 	auto sock = setup_std_sock(myaddr);
+	 	while(!pending_chunks.empty())
+	 	{
+          vector<char>msg(512);
+          auto src = std_recvfrom(sock,msg);
+          if(src.first == TIMEOUT_IP)
+            continue;
+          auto pkt = Packet(msg);
+          if(pkt.verify_checksum() and pkt.type_ = V1_TYPE_MDATA)
+          {
+          	vector<char>temp;
+          	auto ackpt = Packet(V1_TYPE_MDATA_ACK, pkt.sequm,temp);
+          	std_sendto(sock,ackpt.to_bytes(),dest);
+          }
+          else if(Pkt.verify_checksum() and pkt.type_ == V1_TYPE_DATA)
+          {
+          	auto seqnum = pkt.seqnum;
+          	chunks[seqnum] = Chunk(pkt.payload, seqnum);
+          	vector<char>temp;
+          	auto ackpt = Packet(V1_TYPE_DATA_ACK,seqnum,temp);
+          	std_sendto(sock,ackpt.to_bytes(),dest);
+          	pending_chunks.erase(seqnum);
+          }
+	 	}
+	 }
+}
         
 class Metadata :
     def __init__(self,number,name):
@@ -264,7 +329,8 @@ class Receiver:
 class Packet {
 	int version=1, type_, seqnum, payload_length=0, checksum=0;
 	vector<char> payload;
-
+	
+Public:
 	Packet(int ctype_, int cseqnum, vector<char> cpayload) {  // Creating packet at sender
 		type_ = ctype_;
 		seqnum = cseqnum;
