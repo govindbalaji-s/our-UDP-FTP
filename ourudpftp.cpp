@@ -246,46 +246,39 @@ class Receiver:
             f.write(data)
         f.close()
 
-class Packet :
-    def __init__(self, type_:int, seqnum:int, payload, payload_length:int=0, checksum:int=0):
-        self.version = 1
-        self.type_ = type_
-        self.payload_length = payload_length
-        self.checksum = checksum
-        self.seqnum = seqnum
-        self.payload = payload
+class Packet {
+	int version=1, type_, seqnum, payload_length=0, checksum=0;
+	vector<char> payload;
 
-    @classmethod
-    def fromVals(cls, type_:int, seqnum:int, payload):  ## Creating Packet at Sender
-        pkt = cls(type_=type_, seqnum=seqnum, payload=payload)
-        pkt.calc_paylen()
-        test_msg = pkt.to_bytes()
-        pkt.checksum = calc_checksum(test_msg)
-        return pkt
+	Packet(int ctype_, int cseqnum, vector<char> cpayload) {  // Creating packet at sender
+		type_ = ctype_;
+		seqnum = cseqnum;
+		payload = cpayload;
+		payload_length = cpayload.size();
+		checksum = calc_checksum(cpayload);
+	}
 
-    @classmethod
-    def fromBytes(cls, data):  ## Creating packet at Receiver
-        version = data[0] >> 4
-        type_ = (data[0] >> 2) & 3
-        payload_length = ((data[0] & 3) << 8) + data[1]
-        checksum = int.from_bytes(data[2:4], 'big')
-        seqnum = int.from_bytes(data[4:8], 'big')
-        payload = data[8:]
-        return cls(type_, seqnum, payload, payload_length, checksum)
+	Packet(vector<char> data) {  // Creating packet at receiver
+		version = (int)data[0] >> 4;
+		type_ = ((int)data[0] >> 2) & 3;
+		payload_length = (((int)data[0] & 3) << 8) + (int)data[1];
+		checksum = ((int)data[2] << 8) + (int)data[3];
+		seqnum = ((int)data[4] << 24) + ((int)data[5] << 16) + ((int)data[6] << 8) + (int)data[7];
+		payload = vector<char>(data.begin() + 8, data.end());
+	}
 
-    def to_bytes(self):
-        # 4 bits version, 2 bits type, 10 bits payload length
-        ## Error handle version, type etc ranges TODO
-        first = (self.version << 28) + (self.type_ << 26) + (self.payload_length << 16) + self.checksum
-
-        return first.to_bytes(4, 'big') + self.seqnum.to_bytes(4, 'big') + self.payload
-
-    def calc_paylen(self):
-        self.payload_length = len(self.payload)
-
-    def verify_checksum(self):
-        return calc_checksum(self.to_bytes()) == 0
-        ##
+	vector<char> to_bytes() {
+		vector<char> data;
+		data.push_back((char)((version << 4) + (type << 2) + (payload_length >> 8)));  // byte 1
+		data.push_back((char)(payload_length & 255));  // byte 2
+		data.push_back((char)(checksum >> 8));  // byte 3
+		data.push_back((char)(checksum & 255));  // byte 4
+		for(int i = 3; i >= 0; i--) // bytes 5-8
+			data.push_back((char)((seqnum >> (i*8)) & 255));
+		data.insert(data.end(), payload.begin(), payload.end());
+		return data;
+	}
+}
 
 def calc_checksum(msg:bytes):
     #self.checksum = 0
