@@ -1,12 +1,15 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include <netinet/in.h>
 #include <errno.h>
 #include <string>
 #include <utility>
 #include <vector>
-#include <ifstream>
+#include <iostream>
+#include <algorithm>
+#include <thread>
 
 using namespace std;
 
@@ -46,11 +49,14 @@ int setup_std_sock(pair<string, int> myaddr, long timeout=0) {
 pair<string, int> std_recvfrom(int sd, vector<char> &msg) {
     struct sockaddr_in peer_addr;
     size_t peer_addr_len;
-    if(recvfrom(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, &peer_addr_len) < 0){
+    int sz;
+    if((sz = recvfrom(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, &peer_addr_len)) < 0){
         if(errno == EAGAIN or errno == EWOULDBLOCK){
             return {TIMEOUT_IP, 0};
         }
     }
+    msg.resize(sz);
+
     pair<string, int> ret;
     char *ch;
     inet_aton(ch, &peer_addr.sin_addr);
@@ -122,77 +128,54 @@ public:
         cout << "Handshake over\n";
         close(sock);
     }
+
+    void listen_for_acks(int sock) {
+        while(true) {
+            cout << "Remaining: " << count(unacked_chunks.begin(), unacked_chunks.end(), true) << '\n';
+            vector<char> msg(512);
+            std_recvfrom(sock, msg);
+            auto ackpkt = Packet(msg);
+            if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK) {
+                unacked_chunks[ackpkt.seqnum] = 0;
+                if(count(unacked_chunks.begin(), unacked_chunks.end(), true) == 0)
+                    break;
+            }
+        }
+    }
+
+    void send_data() {
+        auto sock = setup_std_sock(dest);
+
+        thread thread_ACK(listen_for_acks, sock);
+        while(count(unacked_chunks.begin(), unacked_chunks.end(), true) > 0) {
+            for(long i = 0; i < unacked_chunks.size(); i++) {
+                if(unacked_chunks[i]) {
+                    auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
+                    std_sendto(sock, utp_pkt.to_bytes(), dest);
+                    // timeout?
+                }
+
+            }
+        }
+        thread_ACK.join();
+        close(sock);
+    }
 };
-class Sender:
 
+class CongestionState{
+    int cwnd = 0,
+        addconst = 1,
+        ssthresh = 1;
+    bool is_slow_start = true;
+};
 
-    def send_data(self):    #func to start sending data, and recieving ACKs for sent data.
+struct Chunk{
+    vector<char> payload;
+    long seq_num;
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(self.myaddr)
-
-        def listen_for_acks():
-            while True:
-                #print("Remaining: " + (str(len(self.unacked_chunks)))
-                #print("Remaining: " + str(np.sum(self.unacked_chunks)))
-                data, src = sock.recvfrom(512)
-                ackpkt = Packet.fromBytes(data)
-                ##verify ack packet appriately
-                if ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK:
-                    ##lock here?
-                    #self.unacked_chunks.discard(ackpkt.seqnum)  ##if already acked, then does nothing
-                    self.unacked_chunks[ackpkt.seqnum] = 0
-                else:
-                    pass
-                    ##Do nothing??
-                #if len(self.unacked_chunks) == 0:
-                if np.sum(self.unacked_chunks) == 0:
-                    break
-
-        thread_ACK = threading.Thread(target=listen_for_acks)
-        thread_ACK.start()
-
-        # unacked_iter = iter(self.unacked_chunks)
-        # while len(self.unacked_chunks) > 0:
-        # ##How do we put a lock here? (:
-        #     try:
-        #         ----------
-        #     except StopIteration:
-        #         unacked_iter = iter(self.unacked_chunks)
-        while np.sum(self.unacked_chunks) > 0:
-            for seq_num in range(len(self.unacked_chunks)):
-                if self.unacked_chunks[seq_num]:
-                    utp_pkt = Packet.fromVals(type_ = 1 , seqnum = seq_num, payload = self.chunks[seq_num].payload) #fromVals takes care of checksumcalculation            utp_pkt.calc_paylen()
-                    ##Checksum computed and updated
-
-                    sock.sendto(utp_pkt.to_bytes(), self.dest)
-                    ##Ig some sort of timeout here before sending again?
-
-        thread_ACK.join()
-        sock.close()
-
-
-
-
-
-    def ack_received(self):
-        pass
-        # update unacked chunks
-
-class CongestionState:
-    def __init__(self):
-        self.cwnd = 0
-        self.addconst = 1
-        self.ssthresh = 1
-        self.is_slow_start = True
-    
-
-class Chunk :
-    def __init__(self, payload, seq_num:int):
-        self.payload = payload
-        self.seq_num = seq_num
-
-
+    Chunk(vector<char> &pload, long sn)
+        : payload(pload), seq_num(sn) {}
+};
         
 class Metadata :
     def __init__(self,number,name):
