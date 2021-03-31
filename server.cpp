@@ -1,7 +1,9 @@
-#include "ourudpftp.h"
 #include <iostream>
+#include <string>
+#include <utility>
 
 using namespace std;
+void ourudpftp_recv_at(pair<string, int>);
 
 int main(){
 
@@ -14,7 +16,7 @@ int main(){
 	cin >> serverport;
 	
     while(1){
-        ourudpftp_recv_at({serverip, serverport})
+        ourudpftp_recv_at({serverip, serverport});
     }
 
 	return 0;

@@ -1,9 +1,10 @@
-#include<iostream>
-#include<string>
-#include<vector>
-#include "ourudpftp.h"
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace std;
+void ourudpftp_sendto(string, pair<string, int>, pair<string, int>);
 
 vector<string> split(string str){
     vector<string> res; 
@@ -42,8 +43,9 @@ int main(){
 	
     while(1){
         //print(">", sep='') -> what is this for??
-        cin << inp	// input commands
-		vector<string> out = split(inp)
+        string inp = getline(cin);
+        //cin << inp	// input commands
+		vector<string> out = split(inp);
         if ("put" == out[0]){                                                                                
                 string fname = out[1];
                 ourudpftp_sendto(fname, {myip, myport}, {ip, port});
