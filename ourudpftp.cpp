@@ -14,7 +14,8 @@
 #include <cassert>
 #include <set>
 #include <fstream>
-#include<chrono>
+#include <chrono>
+#include <cmath>
 using std::chrono::microseconds;
 using std::chrono::duration_cast;
 using std::chrono::system_clock;
@@ -80,11 +81,56 @@ void std_sendto(int sd, vector<unsigned char> &msg, pair<string, int> dest) {
     if(sendto(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, sizeof(peer_addr)) < 0){}
 }
 
+// UDT Congestion Control Algorithm
+// AIMD but "increase" is decreasing.
+// For details, refer: Gu, Yunhong, and Robert L. Grossman.
+//     "UDT: UDP-based data transfer for high-speed wide area networks." 
+// https://doi.org/10.1016/j.comnet.2006.11.009
 class CongestionState{
-    int cwnd = 0,
-        addconst = 1,
-        ssthresh = 1;
-    bool is_slow_start = true;
+    uint32_t cwnd = 10;
+    double L = 8e8; // Link speed assumed 100MBps; TODO obtain from kernel
+    int tau = 9;
+    double beta  = 1/9;
+    double x;
+    bool gotacks = false, timed_out = false;
+    thread timer_thread;
+    bool stayalive = true;
+
+    double alpha() {
+        return pow(10, ceil(log10(L - C())) - tau);
+    }
+    double C() {
+        return x * V1_CHUNK_SIZE * 8;
+    }
+
+    void positive_interval() {
+        x = x + alpha();
+    }
+
+    void timer() {
+        do {
+            gotacks = timed_out = false;
+            this_thread::sleep_for(chrono::milliseconds(10));
+            if(gotacks and not timed_out)
+                positive_interval();
+        } while (stayalive);
+    }
+
+public:
+    CongestionState() : timer_thread(timer) {}
+    void new_timeout() {
+        x = (1-beta) * x;
+        timed_out = true;
+    }
+
+    void got_acks() {
+        gotacks = true;
+    }
+
+    ~CongestionState() {
+        stayalive = false;
+        timer_thread.join();
+    }
 };
 
 struct Chunk{
@@ -259,20 +305,21 @@ class Sender{
     CongestionState cstate;
     int timeoutval = 200000;
     double rtt, dev_rtt;
-    vector<pair<long long int, int>>timestamps_sent(chunks.size());
-    vector<long long int>timestamps_received(chunks.size());
+    vector<pair<long long int, int>>timestamps_sent;
+    vector<long long int>timestamps_received;
     //timers if reqd
 
 public:
     Sender(pair<string, int> myaddr_, pair<string, int> dest_, string fname_)
-    : myaddr(myaddr_), dest(dest_), fname(fname_) {
+    : myaddr(myaddr_), dest(dest_), fname(fname_), cstate() {
         ifstream infile(fname, ios_base::binary);
         auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
         for(auto &uc : temp)
             data.push_back(static_cast<unsigned char>(uc));
         populate_chunks();
         unacked_chunks = vector<bool>(chunks.size(), true);
-        cstate = CongestionState();
+        timestamps_sent = vector<pair<long long int, int>>(chunks.size());
+        timestamps_received = vector<long long int>(chunks.size());
         timeoutval = 200000;
         //timers = 
     }
@@ -320,7 +367,7 @@ public:
         cout << "Handshake over\n";
         close(sock);
     }
-   void update_rtt(long long int new_rtt){
+   void update_rtt(long long int newrtt){
 	rtt = rtt*(0.25) + (double)newrtt*0.75;
 	dev_rtt = (0.875)*dev_rtt + 0.125*abs(newrtt - rtt);
    }
@@ -360,13 +407,13 @@ public:
         auto bytes= utp_pkt.to_bytes();
         std_sendto(sock,bytes,dest);
         notify_rtt(1,seq_num);
-        double timeout = (rtt + 4*dev_rtt)*0.000001;
-        sleep(timeout);
+        uint64_t timeout = (rtt + 4*dev_rtt);
+        this_thread::sleep_for(chrono::microseconds(timeout));
         while(unacked_chunks[seq_num]){
             std_sendto(sock,bytes,dest);
             notify_rtt(2,seq_num);
-            double timeout = (rtt + 4*dev_rtt)*0.000001; 
-        	sleep(timeout); // call rtt function
+            uint64_t timeout = (rtt + 4*dev_rtt);
+            this_thread::sleep_for(chrono::microseconds(timeout)); // call rtt function
         }
     }
     void chunk_ready(uint32_t seq_num, int sock)
