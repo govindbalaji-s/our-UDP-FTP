@@ -117,7 +117,7 @@ class CongestionState{
     }
 
 public:
-    CongestionState() : timer_thread(timer) {}
+    CongestionState() : timer_thread(&CongestionState::timer, this) {}
     void new_timeout() {
         x = (1-beta) * x;
         timed_out = true;
@@ -307,6 +307,7 @@ class Sender{
     double rtt, dev_rtt;
     vector<pair<long long int, int>>timestamps_sent;
     vector<long long int>timestamps_received;
+    vector<thread> sending_threads; // to finally join
     //timers if reqd
 
 public:
@@ -382,7 +383,7 @@ public:
 	auto receiving_time_stamp = duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
 	if(timestamps_sent[seq_num].second == 1){
 		timestamps_received[seq_num] = receiving_time_stamp;
-		long long int new_rtt = (long long int)(timestamps_sent[seq_num] - timestamps_received[seq_num]);
+		long long int new_rtt = (long long int)(timestamps_sent[seq_num].first - timestamps_received[seq_num]);
 		update_rtt(new_rtt);
 
 	}
@@ -418,7 +419,7 @@ public:
     }
     void chunk_ready(uint32_t seq_num, int sock)
     {
-    	thread thread_Send(&Sender::send_data_thread, this, sock, seq_num);
+        sending_threads.push_back(thread(&Sender::send_data_thread, this, sock, seq_num));
     }
     void send_data() {
         auto sock = setup_std_sock(dest);
@@ -430,6 +431,8 @@ public:
                 }
             }
         thread_ACK.join();
+        for(auto &th : sending_threads)
+            th.join();
         close(sock);
     }
 };
@@ -523,7 +526,7 @@ public:
 };
 
 void ourudpftp_sendto(string fname, pair<string, int> myaddr, pair<string, int> dest) {
-    auto sender = Sender(myaddr, dest, fname);
+    Sender sender(myaddr, dest, fname);
     sender.do_handshake();
     sender.send_data();
     cout << "Done sending\n";
