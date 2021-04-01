@@ -15,7 +15,11 @@
 #include <set>
 #include <fstream>
 #include <chrono>
+#include <atomic>
 #include <cmath>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 using std::chrono::microseconds;
 using std::chrono::duration_cast;
 using std::chrono::system_clock;
@@ -87,12 +91,11 @@ void std_sendto(int sd, vector<unsigned char> &msg, pair<string, int> dest) {
 //     "UDT: UDP-based data transfer for high-speed wide area networks." 
 // https://doi.org/10.1016/j.comnet.2006.11.009
 class CongestionState{
-    uint32_t cwnd = 10;
     double L = 8e8; // Link speed assumed 100MBps; TODO obtain from kernel
     int tau = 9;
     double beta  = 1/9;
     double x;
-    bool gotacks = false, timed_out = false;
+    atomic<bool> gotacks, timed_out;
     thread timer_thread;
     bool stayalive = true;
 
@@ -117,8 +120,12 @@ class CongestionState{
     }
 
 public:
-    CongestionState() : timer_thread(&CongestionState::timer, this) {}
+    CongestionState(double rtt) : timer_thread(&CongestionState::timer, this) {
+        x = 10.0 / 1000 / rtt * 0.01;
+        cout << '#' << x << '#' << cwnd(rtt) << '\n';
+    }
     void new_timeout() {
+        // cout << "timing out\n";
         x = (1-beta) * x;
         timed_out = true;
     }
@@ -130,6 +137,12 @@ public:
     ~CongestionState() {
         stayalive = false;
         timer_thread.join();
+    }
+
+    uint32_t cwnd(double rtt) {
+        // x pkts/SYN * 1SYN/0.01ms * rtt/us * 1000us/ms = pkts
+        // cout << '-' << x / 0.01 * rtt * 1000 << '\n';
+        return x / 0.01 * rtt * 1000;
     }
 };
 
@@ -310,18 +323,28 @@ class Sender{
     vector<thread> sending_threads; // to finally join
     //timers if reqd
 
+    atomic<uint32_t> used_wnd;
+
 public:
     Sender(pair<string, int> myaddr_, pair<string, int> dest_, string fname_)
-    : myaddr(myaddr_), dest(dest_), fname(fname_), cstate() {
-        ifstream infile(fname, ios_base::binary);
-        auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
-        for(auto &uc : temp)
-            data.push_back(static_cast<unsigned char>(uc));
+    : myaddr(myaddr_), dest(dest_), fname(fname_), cstate(timeoutval) {
+
+        int fd = open(fname_.c_str(), O_RDONLY);
+        struct stat s; fstat(fd, &s);
+        unsigned char *buf = (unsigned char *)mmap(NULL, s.st_size, PROT_READ, MAP_SHARED, fd, 0);
+        // ifstream infile(fname, ios_base::binary);
+        // auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
+        // for(auto &uc : temp)
+        //     data.push_back(static_cast<unsigned char>(uc));
+        data.reserve(s.st_size);
+        data.insert(data.begin(), buf, buf+s.st_size);
         populate_chunks();
         unacked_chunks = vector<bool>(chunks.size(), true);
         timestamps_sent = vector<pair<long long int, int>>(chunks.size());
         timestamps_received = vector<long long int>(chunks.size());
         timeoutval = 200000;
+        rtt = 100000;
+        used_wnd = 0;
         //timers = 
     }
 
@@ -396,7 +419,9 @@ public:
             std_recvfrom(sock, msg);
             auto ackpkt = Packet(msg);
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK) {
+                cstate.got_acks();
                 unacked_chunks[ackpkt.seqnum] = 0;
+                used_wnd--;
                 if(count(unacked_chunks.begin(), unacked_chunks.end(), true) == 0)
                     break;
             }
@@ -411,6 +436,7 @@ public:
         uint64_t timeout = (rtt + 4*dev_rtt);
         this_thread::sleep_for(chrono::microseconds(timeout));
         while(unacked_chunks[seq_num]){
+            cstate.new_timeout();
             std_sendto(sock,bytes,dest);
             notify_rtt(2,seq_num);
             uint64_t timeout = (rtt + 4*dev_rtt);
@@ -424,9 +450,13 @@ public:
     void send_data() {
         auto sock = setup_std_sock(dest);
         thread thread_ACK(&Sender::listen_for_acks, this, sock);
-            for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
+            for(uint32_t seq_num = 0; seq_num < unacked_chunks.size();) {
+                while(used_wnd > cstate.cwnd(rtt))
+                    continue; //spin
                 if(unacked_chunks[seq_num]) {
                    chunk_ready(seq_num,sock);
+                   used_wnd++;
+                   seq_num++;
                     // timeout?
                 }
             }
