@@ -14,6 +14,9 @@
 #include <cassert>
 #include <set>
 #include <fstream>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 using namespace std;
 
@@ -259,10 +262,15 @@ class Sender{
 public:
     Sender(pair<string, int> myaddr_, pair<string, int> dest_, string fname_)
     : myaddr(myaddr_), dest(dest_), fname(fname_) {
-        ifstream infile(fname, ios_base::binary);
-        auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
-        for(auto &uc : temp)
-            data.push_back(static_cast<unsigned char>(uc));
+        int fd = open(fname_.c_str(), O_RDONLY);
+        struct stat s; fstat(fd, &s);
+        unsigned char *buf = (unsigned char *)mmap(NULL, s.st_size, PROT_READ, MAP_SHARED, fd, 0);
+        // ifstream infile(fname, ios_base::binary);
+        // auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
+        // for(auto &uc : temp)
+        //     data.push_back(static_cast<unsigned char>(uc));
+        data.reserve(s.st_size);
+        data.insert(data.begin(), buf, buf+s.st_size);
         populate_chunks();
         unacked_chunks = vector<bool>(chunks.size(), true);
         cstate = CongestionState();
@@ -424,12 +432,9 @@ public:
      void write_chunks(){
          ofstream file;
          file.open("r" + mdata.filename, ios::binary | ios::out);
-         for(auto i: chunks)
+         for(auto &i: chunks)
          {
-             vector<char> temp;
-             for(auto &uc : i.payload)
-                temp.push_back(static_cast<char>(uc));
-             file.write(temp.data(), i.payload.size());
+            file.write(reinterpret_cast<char *>(i.payload.data()), i.payload.size());
          }
          file.close();
      }
