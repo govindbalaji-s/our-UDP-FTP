@@ -14,6 +14,10 @@
 #include <cassert>
 #include <set>
 #include <fstream>
+#include<chrono>
+using std::chrono::microseconds;
+using std::chrono::duration_cast;
+using std::chrono::system_clock;
 
 using namespace std;
 
@@ -254,6 +258,9 @@ class Sender{
     vector<bool> unacked_chunks;
     CongestionState cstate;
     int timeoutval = 200000;
+    double rtt, dev_rtt;
+    vector<pair<long long int, int>>timestamps_sent(chunks.size());
+    vector<long long int>timestamps_received(chunks.size());
     //timers if reqd
 
 public:
@@ -313,8 +320,28 @@ public:
         cout << "Handshake over\n";
         close(sock);
     }
+   void update_rtt(long long int new_rtt){
+	rtt = rtt*(0.25) + (double)newrtt*0.75;
+	dev_rtt = (0.875)*dev_rtt + 0.125*abs(newrtt - rtt);
+   }
 
-    void listen_for_acks(int sock) {
+   void notify_rtt(int k,uint32_t seq_num){
+	auto sending_time_stamp = duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count();
+	  timestamps_sent[seq_num] = make_pair(sending_time_stamp,k); // if k=1 it sent already once, if k = 2 then it may be sent more than once
+
+   }
+
+   void notify_rtt_ack(uint32_t seq_num){
+	auto receiving_time_stamp = duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+	if(timestamps_sent[seq_num].second == 1){
+		timestamps_received[seq_num] = receiving_time_stamp;
+		long long int new_rtt = (long long int)(timestamps_sent[seq_num] - timestamps_received[seq_num]);
+		update_rtt(new_rtt);
+
+	}
+   }
+
+   void listen_for_acks(int sock) {
         while(true) {
             // cout << "Remaining: " << count(unacked_chunks.begin(), unacked_chunks.end(), true) << '\n';
             vector<unsigned char> msg(512);
@@ -332,10 +359,14 @@ public:
         auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
         auto bytes= utp_pkt.to_bytes();
         std_sendto(sock,bytes,dest);
-        sleep(rtt);
+        notify_rtt(1,seq_num);
+        double timeout = (rtt + 4*dev_rtt)*0.000001;
+        sleep(timeout);
         while(unacked_chunks[seq_num]){
             std_sendto(sock,bytes,dest);
-        	sleep(rtt); // call rtt function
+            notify_rtt(2,seq_num);
+            double timeout = (rtt + 4*dev_rtt)*0.000001; 
+        	sleep(timeout); // call rtt function
         }
     }
     void chunk_ready(uint32_t seq_num, int sock)
