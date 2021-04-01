@@ -328,20 +328,29 @@ public:
         }
     }
 
+   void send_data_thread(int sock, uint32_t seq_num){
+        auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
+        auto bytes= utp_pkt.to_bytes();
+        std_sendto(sock,bytes,dest);
+        sleep(rtt);
+        while(unacked_chunks[seq_num]){
+            std_sendto(sock,bytes,dest);
+        	sleep(rtt); // call rtt function
+        }
+    }
+    void chunk_ready(uint32_t seq_num, int sock)
+    {
+    	thread thread_Send(&Sender::send_data_thread, this, sock, seq_num);
+    }
     void send_data() {
         auto sock = setup_std_sock(dest);
-
         thread thread_ACK(&Sender::listen_for_acks, this, sock);
-        while(count(unacked_chunks.begin(), unacked_chunks.end(), true) > 0) {
             for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 if(unacked_chunks[seq_num]) {
-                    auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
-                    auto bytes = utp_pkt.to_bytes();
-                    std_sendto(sock, bytes, dest);
+                   chunk_ready(seq_num,sock);
                     // timeout?
                 }
             }
-        }
         thread_ACK.join();
         close(sock);
     }
