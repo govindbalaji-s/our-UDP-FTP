@@ -53,6 +53,7 @@ int main(){
                 string fname = out[1];
                 ourudpftp_sendto(fname, {myip, myport}, {ip, port});
                 cout << "Sent successfully\n";
+                return 0;
 		}
         else if (out[0] == "exit"){  // close connection
             cout << "Exiting..\n";

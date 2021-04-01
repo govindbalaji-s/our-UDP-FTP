@@ -87,6 +87,7 @@ struct Chunk{
     vector<unsigned char> payload;
     uint32_t seq_num;
 
+    Chunk() {seq_num=0;}
     Chunk(vector<unsigned char> &pload, uint32_t sn)
         : payload(pload), seq_num(sn) {}
 };
@@ -153,9 +154,9 @@ uint32_t calc_checksum(vector<unsigned char> msg2) {
     // vector<uint16_t> msg2;
     // for(int i = 0; i < msg.size(); i++)
     //     msg2.push_back((static_cast<unsigned unsigned char>(msg[i])));
-    cout << '@' << msg2.size() <<'@';
-    for(uint16_t m: msg2) cout << (m) << '@';
-    cout << '\n';
+    // cout << '@' << msg2.size() <<'@';
+    // for(uint16_t m: msg2) cout << (m) << '@';
+    // cout << '\n';
     uint32_t s = 0;
     if( msg2.size() %2 == 1)
         msg2.push_back(0);
@@ -239,7 +240,7 @@ public:
 	}
 
     bool verify_checksum() {
-        cout << "Checksum = " << calc_checksum(to_bytes()) << '\n';
+        // cout << "Checksum = " << calc_checksum(to_bytes()) << '\n';
         return calc_checksum(to_bytes()) == 0;
     }
 };
@@ -263,7 +264,7 @@ public:
         for(auto &uc : temp)
             data.push_back(static_cast<unsigned char>(uc));
         populate_chunks();
-        unacked_chunks.resize(chunks.size());
+        unacked_chunks = vector<bool>(chunks.size(), true);
         cstate = CongestionState();
         timeoutval = 200000;
         //timers = 
@@ -301,9 +302,9 @@ public:
                 continue;
             }
             cout << "Received some handshake.\n";
-            cout << '#' << msg.size() <<'#';
-            for(uint16_t m: msg) cout << uint16_t(static_cast<unsigned char>(m)) << '#';
-            cout << '\n';
+            // cout << '#' << msg.size() <<'#';
+            // for(uint16_t m: msg) cout << uint16_t(static_cast<unsigned char>(m)) << '#';
+            // cout << '\n';
             auto ackpkt = Packet(msg);
             cout << ackpkt.verify_checksum() << '\n';
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_MDATA_ACK)
@@ -315,7 +316,7 @@ public:
 
     void listen_for_acks(int sock) {
         while(true) {
-            cout << "Remaining: " << count(unacked_chunks.begin(), unacked_chunks.end(), true) << '\n';
+            // cout << "Remaining: " << count(unacked_chunks.begin(), unacked_chunks.end(), true) << '\n';
             vector<unsigned char> msg(512);
             std_recvfrom(sock, msg);
             auto ackpkt = Packet(msg);
@@ -377,6 +378,7 @@ public:
         	{
         		pending_chunks.insert(i);
         	}
+            chunks.resize(mdata.numchunks);
        		vector<unsigned char> temp;
        		auto ackpacket = Packet(V1_TYPE_MDATA_ACK,hdrpkt.seqnum,temp);
             auto bytes = ackpacket.to_bytes();
@@ -399,7 +401,7 @@ public:
           auto pkt = Packet(msg);
           if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_MDATA)
           {
-            cout << "gggg\n";
+            // cout << "gggg\n";
           	vector<unsigned char>temp;
           	auto ackpt = Packet(V1_TYPE_MDATA_ACK, pkt.seqnum,temp);
             auto bytes = ackpt.to_bytes();
