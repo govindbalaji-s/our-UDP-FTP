@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <thread>
 #include <set>
+#include<fstream.h>
 
 using namespace std;
 
@@ -82,9 +83,9 @@ class CongestionState{
 
 struct Chunk{
     vector<char> payload;
-    long seq_num;
+    uint32_t seq_num;
 
-    Chunk(vector<char> &pload, long sn)
+    Chunk(vector<char> &pload, uint32_t sn)
         : payload(pload), seq_num(sn) {}
 };
 
@@ -246,7 +247,7 @@ public:
 
         thread thread_ACK(listen_for_acks, sock);
         while(count(unacked_chunks.begin(), unacked_chunks.end(), true) > 0) {
-            for(long seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
+            for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 if(unacked_chunks[seq_num]) {
                     auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
                     auto bytes = utp_pkt.to_bytes();
@@ -324,6 +325,16 @@ public:
 	 	}
         close(sock);
 	 }
+
+     void write_chunks(){
+         ofstream file;
+         file.open("wb");
+         for(auto i: chunks)
+         {
+             file<<i.payload;
+         }
+         file.close();
+     }
 };
 
 void ourudpftp_sendto(string fname, pair<string, int> myaddr, pair<string, int> dest) {
