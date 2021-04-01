@@ -18,6 +18,7 @@ vector<string> split(string str){
             word = word + x;
         }
     }
+    if(word != "") res.push_back(word);
 	if(res.empty())
 		res.push_back(str);
 
@@ -43,9 +44,11 @@ int main(){
 	
     while(1){
         //print(">", sep='') -> what is this for??
-        string inp = getline(cin);
+        string inp;
+        getline(cin, inp);
         //cin << inp	// input commands
 		vector<string> out = split(inp);
+        for(auto &s : out) cerr << s << '#'; cerr << '\n';
         if ("put" == out[0]){                                                                                
                 string fname = out[1];
                 ourudpftp_sendto(fname, {myip, myport}, {ip, port});

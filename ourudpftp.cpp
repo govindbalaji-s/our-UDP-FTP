@@ -10,8 +10,10 @@
 #include <iostream>
 #include <algorithm>
 #include <thread>
+#include <fstream>
+#include <cassert>
 #include <set>
-#include<fstream.h>
+#include <fstream>
 
 using namespace std;
 
@@ -50,18 +52,18 @@ int setup_std_sock(pair<string, int> myaddr, long timeout=0) {
 
 pair<string, int> std_recvfrom(int sd, vector<char> &msg) {
     struct sockaddr_in peer_addr;
-    size_t peer_addr_len;
+    socklen_t peer_addr_len;
     int sz;
     if((sz = recvfrom(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, &peer_addr_len)) < 0){
         if(errno == EAGAIN or errno == EWOULDBLOCK){
+            cout << errno << '\n';
             return {TIMEOUT_IP, 0};
         }
     }
     msg.resize(sz);
 
     pair<string, int> ret;
-    char *ch;
-    inet_aton(ch, &peer_addr.sin_addr);
+    char *ch = inet_ntoa(peer_addr.sin_addr);
     return {string(ch), ntohs(peer_addr.sin_port)};
 }
 
@@ -93,12 +95,13 @@ struct Metadata {
     uint32_t numchunks;
     string filename;
 
+    Metadata() {}
     Metadata(uint32_t nch, string fn) : numchunks(nch), filename(fn) {}
 
     Metadata(vector<char> data) {
         numchunks = 0;
-        for(int i = 0; i < 4; i++)
-            numchunks += uint32_t(data[0]) << (24-8*i);
+        for(int i = 3; i >= 0; i--)
+            numchunks += uint32_t(data[3-i]) << (8*i);
         
         filename = string(data.begin()+4, data.end());
     }
@@ -106,50 +109,117 @@ struct Metadata {
     vector<char> to_bytes() {
         vector<char> data;
         for(int i = 3; i >= 0; i--)
-            data.push_back((numchunks >> (8*i)) & 255);
+            data.push_back((numchunks >> (8*i)) & 255u);
         
         data.insert(data.end(), filename.begin(), filename.end());
         return data;
     }
 };
 
-
-uint16_t add_carry(uint16_t a_, uint16_t b_) {
+uint32_t add_carry(uint16_t a_, uint16_t b_) {
     uint32_t a = a_, b = b_;
     uint32_t c = a + b;
-    return uint16_t((c & 0xffff) + (c >> 16)); // wrap around carry bit
+    return ((c & 0xffffu) + (c >> 16u)); // wrap around carry bit
 }
+/* Compute checksum for count bytes starting at addr, using one's complement of one's complement sum*/
+static uint32_t compute_checksum(uint32_t *addr, uint32_t count) {
+  uint64_t sum = 0;
+  while (count > 1) {
+    sum += * addr++;
+    count -= 2;
+  }
+  //if any bytes left, pad the bytes and add
+  if(count > 0) {
+    sum += ((*addr)&htons(0xFF00u));
+  }
+  //Fold sum to 16 bits: add carrier to result
+  while (sum>>16) {
+      sum = (sum & 0xffffu) + (sum >> 16);
+  }
+  //one's complement
+  sum = ~sum;
+  return ((uint16_t)sum);
+}
+uint32_t calc_checksum(vector<char> msg) {
+    // if(msg.size() % 2 == 1)
+    //     msg.push_back(0);
 
-uint16_t calc_checksum(vector<char> msg) {
-    uint16_t s = 0;
+    // uint32_t *buf = new uint32_t[msg.size()/2];
+    // for(int i = 0; i < msg.size(); i+=2)
+    //     buf[i/2] = (uint32_t(msg[i]) << 8) + uint32_t(msg[i+1]);
+    // uint32_t ans = compute_checksum(buf, msg.size());
+    // delete buf;
+    // return ans;
+    cout << '@' << msg.size() <<'@';
+    for(char m: msg) cout << uint16_t(m) << '@';
+    cout << '\n';
+    uint32_t s = 0;
     if( msg.size() %2 == 1)
         msg.push_back(0);
-    for(int i = 0; i < msg.size(); i += 2) {
-        uint16_t next_word = (msg[i]<<8) + msg[i+1];
+    for(unsigned long i = 0; i < msg.size(); i += 2) {
+        uint16_t next_word = ((uint16_t)(msg[i])<<8u) + (uint16_t)(msg[i+1]);
+        cout << "&&" << next_word << ' ';
         s = add_carry(s, next_word);
+        cout << "^^" << s << ' ';
     }
-    return uint16_t((~s) & 0xffff);
+    cout <<  '\n';
+    cout << '%' << s << '\n';
+    uint16_t ret = (uint16_t)(~s & 0xffffu);
+    cout << "$$" << ret << '\n';
+    // char *buf = new char[msg.size()];
+    // for(int i = 0; i < msg.size(); i++)
+    //     buf[i] = msg[i];
+    // auto ans = ip_checksum(buf, msg.size());
+    // delete buf;
+    // return ans;
+    // return ip_checksum(msg.data(), msg.size());
+    return ret;
 }
 
+
+// uint16_t calc_checksum(vector<char> data)
+// {
+//     char *buffer = data.data();
+//     int size = data.size();
+//     unsigned long cksum=0;
+//     while(size >1)
+//     {
+//         cksum+=*buffer++;
+//         size -=sizeof(uint16_t);
+//     }
+//     if(size)
+//         cksum += *(char*)buffer;
+
+//     cksum = (cksum >> 16) + (cksum & 0xffff);
+//     cksum += (cksum >>16);
+//     return (uint16_t)(~cksum);
+// }
+
 struct Packet {
-	int version=1, type_, seqnum, payload_length=0, checksum=0;
+    uint16_t version = 1, type_;
+    uint32_t seqnum;
+    uint16_t checksum = 0;
+    uint16_t payload_length;
+	//int version=1, type_, seqnum, payload_length=0, checksum=0;
 	vector<char> payload;
 	
 public:
-	Packet(int ctype_, int cseqnum, vector<char> cpayload) {  // Creating packet at sender
+	Packet(int ctype_, uint32_t cseqnum, vector<char> cpayload) {  // Creating packet at sender
 		type_ = ctype_;
 		seqnum = cseqnum;
 		payload = cpayload;
 		payload_length = cpayload.size();
-		checksum = calc_checksum(cpayload);
+		checksum = calc_checksum(to_bytes());
+        assert(verify_checksum());
+        // cout << "Calculated checksum = " << checksum << '\n';
 	}
 
 	Packet(vector<char> data) {  // Creating packet at receiver
-		version = (int)data[0] >> 4;
-		type_ = ((int)data[0] >> 2) & 3;
-		payload_length = (((int)data[0] & 3) << 8) + (int)data[1];
-		checksum = ((int)data[2] << 8) + (int)data[3];
-		seqnum = ((int)data[4] << 24) + ((int)data[5] << 16) + ((int)data[6] << 8) + (int)data[7];
+		version = (uint32_t)data[0] >> 4;
+		type_ = ((uint32_t)data[0] >> 2) & 3;
+		payload_length = (((uint32_t)data[0] & 3) << 8) + (uint32_t)data[1];
+		checksum = ((uint32_t)data[2] << 8) + (uint32_t)data[3];
+		seqnum = ((uint32_t)data[4] << 24) + ((uint32_t)data[5] << 16) + ((uint32_t)data[6] << 8) + (uint32_t)data[7];
 		payload = vector<char>(data.begin() + 8, data.end());
 	}
 
@@ -166,6 +236,7 @@ public:
 	}
 
     bool verify_checksum() {
+        cout << "Checksum = " << calc_checksum(to_bytes()) << '\n';
         return calc_checksum(to_bytes()) == 0;
     }
 };
@@ -189,7 +260,7 @@ public:
         populate_chunks();
         unacked_chunks.resize(chunks.size());
         cstate = CongestionState();
-        timeoutval = 200;
+        timeoutval = 200000;
         //timers = 
     }
 
@@ -206,8 +277,11 @@ public:
     }
 
     void do_handshake() {
+        cout << "Metadata:" << chunks.size() << ' ' << fname << '\n';
         auto mdata = Metadata(chunks.size(), fname);
         auto pload = mdata.to_bytes();
+        cout << ";;" << calc_checksum(pload);
+
         auto mdpkt = Packet(V1_TYPE_MDATA, 0, pload);
 
         auto sock = setup_std_sock(myaddr, timeoutval);
@@ -217,10 +291,13 @@ public:
             std_sendto(sock, bytes, dest);
             vector<char> msg(512);
             auto src = std_recvfrom(sock, msg);
-            if(src.first == TIMEOUT_IP)
+            if(src.first == TIMEOUT_IP) {
+                cout << "Timedout\n";
                 continue;
+            }
             cout << "Received some handshake.\n";
             auto ackpkt = Packet(msg);
+            cout << ackpkt.verify_checksum() << '\n';
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_MDATA_ACK)
                 break;
         }
@@ -245,7 +322,7 @@ public:
     void send_data() {
         auto sock = setup_std_sock(dest);
 
-        thread thread_ACK(listen_for_acks, sock);
+        thread thread_ACK(&Sender::listen_for_acks, this, sock);
         while(count(unacked_chunks.begin(), unacked_chunks.end(), true) > 0) {
             for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 if(unacked_chunks[seq_num]) {
@@ -264,6 +341,7 @@ public:
 class Receiver{
 	pair<string, int> myaddr, src;
 	vector<Chunk> chunks;
+    Metadata mdata;
 	set<long> pending_chunks;
 	int count = 0;
 
@@ -278,11 +356,15 @@ public:
        while(true){
        	vector<char> msg(512);
        	src = std_recvfrom(sock, msg);
-        
+        cout << "Got some handshake\n";  
        	Packet hdrpkt(msg);
        	if(hdrpkt.verify_checksum() and hdrpkt.type_ == V1_TYPE_MDATA)
        	{
-            Metadata mdata(hdrpkt.payload);
+            cout << "Verfied handshake\n";
+                    cout << ";;" << calc_checksum(hdrpkt.payload);
+
+            mdata = Metadata(hdrpkt.payload);
+            cout << "Metadata:" << mdata.numchunks << ' ' << mdata.filename << '\n';
             for(int i=0;i<mdata.numchunks;i++)
         	{
         		pending_chunks.insert(i);
@@ -291,9 +373,11 @@ public:
        		auto ackpacket = Packet(V1_TYPE_MDATA_ACK,hdrpkt.seqnum,temp);
             auto bytes = ackpacket.to_bytes();
        		std_sendto(sock, bytes, src);
+            cout << "Sent ack\n";
        		break;
        	}
        }
+       cout << "Handshake over\n";
         close(sock);
 	 }
 
@@ -307,6 +391,7 @@ public:
           auto pkt = Packet(msg);
           if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_MDATA)
           {
+            cout << "gggg\n";
           	vector<char>temp;
           	auto ackpt = Packet(V1_TYPE_MDATA_ACK, pkt.seqnum,temp);
             auto bytes = ackpt.to_bytes();
@@ -328,10 +413,10 @@ public:
 
      void write_chunks(){
          ofstream file;
-         file.open("wb");
+         file.open("r" + mdata.filename, ios::binary | ios::out);
          for(auto i: chunks)
          {
-             file<<i.payload;
+             file.write(i.payload.data(), i.payload.size());
          }
          file.close();
      }
