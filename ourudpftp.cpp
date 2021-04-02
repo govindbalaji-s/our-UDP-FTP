@@ -319,7 +319,7 @@ class Sender{
     int timeoutval = 200000;
     double rtt, dev_rtt;
     vector<pair<long long int, int>>timestamps_sent;
-    vector<long long int>timestamps_received;
+    vector<long long int>timestamps_received, timeouts;
     vector<thread> sending_threads; // to finally join
     //timers if reqd
 
@@ -340,8 +340,9 @@ public:
         data.insert(data.begin(), buf, buf+s.st_size);
         populate_chunks();
         unacked_chunks = vector<bool>(chunks.size(), true);
-        timestamps_sent = vector<pair<long long int, int>>(chunks.size());
-        timestamps_received = vector<long long int>(chunks.size());
+        timestamps_sent.resize(chunks.size());
+        timestamps_received.resize(chunks.size());
+        timeouts.resize(chunks.size());
         timeoutval = 200000;
         rtt = 100000;
         used_wnd = 0;
@@ -428,38 +429,44 @@ public:
         }
     }
 
-   void send_data_thread(int sock, uint32_t seq_num){
+    void send_chunk(int sock, uint32_t seq_num) {
+        // TODO: optimize creating packet each time
         auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
         auto bytes= utp_pkt.to_bytes();
         std_sendto(sock,bytes,dest);
-        notify_rtt(1,seq_num);
-        uint64_t timeout = (rtt + 4*dev_rtt);
-        this_thread::sleep_for(chrono::microseconds(timeout));
+        notify_rtt(timestamps_sent[seq_num].second + 1,seq_num); // increment sent count
+        timeouts[seq_num] = (rtt + 4*dev_rtt);        
+    }
+
+   void send_data_thread(int sock, uint32_t seq_num){
+        send_chunk(sock, seq_num);
+        this_thread::sleep_for(chrono::microseconds(timeouts[seq_num]));
         while(unacked_chunks[seq_num]){
-            cstate.new_timeout();
-            std_sendto(sock,bytes,dest);
-            notify_rtt(2,seq_num);
-            uint64_t timeout = (rtt + 4*dev_rtt);
-            this_thread::sleep_for(chrono::microseconds(timeout)); // call rtt function
+            send_chunk(sock, seq_num);
+            this_thread::sleep_for(chrono::microseconds(timeouts[seq_num])); // call rtt function
         }
     }
     void chunk_ready(uint32_t seq_num, int sock)
     {
         sending_threads.push_back(thread(&Sender::send_data_thread, this, sock, seq_num));
     }
+    bool iftimedout(uint32_t seq_num) {
+        return duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count()
+            - timestamps_sent[seq_num].first >= timeouts[seq_num];
+    }
     void send_data() {
         auto sock = setup_std_sock(dest);
         thread thread_ACK(&Sender::listen_for_acks, this, sock);
-            for(uint32_t seq_num = 0; seq_num < unacked_chunks.size();) {
+        while(unacked_chunks.size() > 0) {
+            for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 while(used_wnd > cstate.cwnd(rtt))
                     continue; //spin
-                if(unacked_chunks[seq_num]) {
-                   chunk_ready(seq_num,sock);
-                   used_wnd++;
-                   seq_num++;
-                    // timeout?
+                if(unacked_chunks[seq_num] and iftimedout(seq_num)) {
+                    send_chunk(sock, seq_num);
+                    used_wnd++;
                 }
             }
+        }
         thread_ACK.join();
         for(auto &th : sending_threads)
             th.join();
