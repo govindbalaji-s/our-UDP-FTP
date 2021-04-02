@@ -476,13 +476,16 @@ public:
                 cout << percent <<"% done\n";
             }
             for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
-                while(used_wnd > cstate.cwnd(rtt))
-                    continue; //spin
                 if(unacked_chunks[seq_num] and iftimedout(seq_num)) {
-                    if(timestamps_sent[seq_num].second > 0)
+                     //spin    
+                    if(timestamps_sent[seq_num].second > 0) 
                         cstate.new_timeout();
+                    else if (used_wnd <= cstate.cwnd(rtt)) {
+                        used_wnd++;
+                    }
+                    else
+                        continue;
                     send_chunk(sock, seq_num);
-                    used_wnd++;
                 }
             }
         }
