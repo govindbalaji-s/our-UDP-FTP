@@ -135,7 +135,7 @@ public:
         x = 10.0 / 1000 / rtt * 0.01;
         cout << '#' << x << '#' << cwnd(rtt) << '\n';
     }
-    void set_maxcwnd( uint32_t maxcwnd) {
+    void set_maxcwnd(uint32_t maxcwnd) {
         ssthresh = maxcwnd;
     }
     void new_timeout() {
@@ -296,10 +296,13 @@ class Sender{
     vector<bool> unacked_chunks;
     CongestionState cstate;
     int timeoutval = 200000;
-    double rtt, dev_rtt;
+    atomic<double> rtt, dev_rtt;
     vector<pair<long long int, int>>timestamps_sent;
     vector<long long int>timestamps_received, timeouts;
     vector<thread> sending_threads; // to finally join
+
+    long long start_time, end_time;
+    uint64_t fsize;
     //timers if reqd
 
     atomic<uint32_t> used_wnd;
@@ -307,10 +310,11 @@ class Sender{
 
 public:
     Sender(pair<string, int> myaddr_, pair<string, int> dest_, string fname_)
-    : myaddr(myaddr_), dest(dest_), fname(fname_), cstate(timeoutval) {
+    : myaddr(myaddr_), dest(dest_), fname(fname_), cstate(200000) {
 
         int fd = open(fname_.c_str(), O_RDONLY);
         struct stat s; fstat(fd, &s);
+        fsize = s.st_size;
         unsigned char *buf = (unsigned char *)mmap(NULL, s.st_size, PROT_READ, MAP_SHARED, fd, 0);
         // ifstream infile(fname, ios_base::binary);
         // auto temp = vector<char>(istreambuf_iterator<char>(infile), istreambuf_iterator<char>());
@@ -462,11 +466,12 @@ public:
             - timestamps_sent[seq_num].first >= timeouts[seq_num];
     }
     void send_data() {
+        start_time = duration_cast<std::chrono::milliseconds>(system_clock::now().time_since_epoch()).count();
         auto sock = setup_std_sock(dest);
         thread thread_ACK(&Sender::listen_for_acks, this, ref(sock));
         uint32_t percent = 0;
         while(cnt_unacked > 0) {
-            if(cnt_unacked <= (90-percent)*chunks.size()/100) {
+            while(cnt_unacked <= (90-percent)*chunks.size()/100) {
                 percent += 10;
                 cout << percent <<"% done\n";
             }
@@ -486,6 +491,9 @@ public:
         for(auto &th : sending_threads)
             th.join();
         close(sock);
+        end_time = duration_cast<std::chrono::milliseconds>(system_clock::now().time_since_epoch()).count();
+        cout << fsize << "B transferred in " << 1.0/1000*(end_time - start_time) << " sec.\n"
+            << "Throughput = " << 1000.0 * fsize / (end_time - start_time) << " B/s\n"; 
     }
 };
 
