@@ -30,25 +30,26 @@ int main(){
 	string myip, ip ;	//'ip' is server ip
 	int myport, port ;	//'port' is server port
 
-	cout << "Enter IP of myself:\n";
+	cout << "Enter IP of myself: ";
 	cin >> myip;
 
-	cout << "Enter Port of myself:\n";
+	cout << "Enter Port of myself: ";
 	cin >> port;
 
-	cout << "Enter IP of server:\n";
+	cout << "Enter IP of server: ";
 	cin >> ip;
 
-	cout << "Enter PORT of server:\n";
+	cout << "Enter PORT of server: ";
 	cin >> port;
 	
     while(1){
+        cout << "Syntax: put filename\n> ";
         //print(">", sep='') -> what is this for??
         string inp;
         getline(cin, inp);
         //cin << inp	// input commands
 		vector<string> out = split(inp);
-        for(auto &s : out) cerr << s << '#'; cerr << '\n';
+        // for(auto &s : out) cerr << s << '#'; cerr << '\n';
         if ("put" == out[0]){                                                                                
                 string fname = out[1];
                 ourudpftp_sendto(fname, {myip, myport}, {ip, port});
