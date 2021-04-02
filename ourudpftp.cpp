@@ -33,6 +33,7 @@ const int V1_TYPE_DATA = 1;
 const int V1_TYPE_MDATA_ACK = 2;
 const int V1_TYPE_DATA_ACK = 3;
 const string TIMEOUT_IP = "TIMEOUT";
+const string TRANSFER_COMPLETE = "TRANSFER_COMPLETE";
 
 extern int errno;
 
@@ -422,8 +423,15 @@ public:
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK) {
                 cstate.got_acks();
                 unacked_chunks[ackpkt.seqnum] = 0;
-                used_wnd--;
-                if(count(unacked_chunks.begin(), unacked_chunks.end(), true) == 0)
+                if(count(unacked_chunks.begin(), unacked_chunks.end(), true) != 0)
+                    used_wnd--;
+                string temp(ackpkt.payload.begin(), ackpkt.payload.end());
+                if(temp == TRANSFER_COMPLETE)
+                    break;
+            }
+            else if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_MDATA_ACK) {
+                string temp(ackpkt.payload.begin(), ackpkt.payload.end());
+                if(temp == TRANSFER_COMPLETE)
                     break;
             }
         }
@@ -547,6 +555,34 @@ public:
           	pending_chunks.erase(seqnum);
           }
 	 	}
+         
+        close(sock);
+        sock = setup_std_sock(myaddr, timeoutval);
+        auto start_time_stamp = duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count();
+
+        while(true) {  // Bye Messages
+          auto current_time_stamp = duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count();
+          if (current_time_stamp - start_time_stamp > 1000000)
+            break;
+          vector<unsigned char>msg(512);
+          auto src = std_recvfrom(sock,msg); // Needs to break after timedout
+          if(src.first == TIMEOUT_IP)
+            break;
+          auto pkt = Packet(msg);
+          if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_MDATA) {
+            vector<unsigned char> temp(TRANSFER_COMPLETE.begin(), TRANSFER_COMPLETE.end());  // Initialize payload
+          	auto ackpt = Packet(V1_TYPE_MDATA_ACK, pkt.seqnum, temp);
+            auto bytes = ackpt.to_bytes();
+          	std_sendto(sock, bytes, src);
+          }
+          else if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_DATA)
+          {
+          	vector<unsigned char> temp(TRANSFER_COMPLETE.begin(), TRANSFER_COMPLETE.end());  // Initialize payload
+          	auto ackpt = Packet(V1_TYPE_DATA_ACK, seqnum, temp);
+          	auto bytes = ackpt.to_bytes();
+          	std_sendto(sock, bytes, src);
+          }
+        }
         close(sock);
 	 }
 
