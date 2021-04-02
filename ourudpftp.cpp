@@ -462,6 +462,8 @@ public:
                 while(used_wnd > cstate.cwnd(rtt))
                     continue; //spin
                 if(unacked_chunks[seq_num] and iftimedout(seq_num)) {
+                    if(timestamps_sent[seq_num].second > 0)
+                        cstate.new_timeout();
                     send_chunk(sock, seq_num);
                     used_wnd++;
                 }
