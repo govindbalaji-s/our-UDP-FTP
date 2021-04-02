@@ -33,7 +33,7 @@ const int V1_TYPE_DATA = 1;
 const int V1_TYPE_MDATA_ACK = 2;
 const int V1_TYPE_DATA_ACK = 3;
 const string TIMEOUT_IP = "TIMEOUT";
-const string TRANSFER_COMPLETE = "TRANSFER_COMPLETE";
+const string TRANSFER_COMPLETE = "BYEE";
 
 extern int errno;
 
@@ -66,7 +66,7 @@ pair<string, int> std_recvfrom(int sd, vector<unsigned char> &msg) {
     int sz;
     if((sz = recvfrom(sd, msg.data(), msg.size(), 0, (struct sockaddr*)&peer_addr, &peer_addr_len)) < 0){
         if(errno == EAGAIN or errno == EWOULDBLOCK){
-            cout << errno << '\n';
+            // cout << errno << '\n';
             return {TIMEOUT_IP, 0};
         }
     }
@@ -143,6 +143,7 @@ public:
     uint32_t cwnd(double rtt) {
         // x pkts/SYN * 1SYN/0.01ms * rtt/us * 1000us/ms = pkts
         // cout << '-' << x / 0.01 * rtt * 1000 << '\n';
+        // return 1'000'000'0;
         return x / 0.01 * rtt * 1000;
     }
 };
@@ -186,61 +187,16 @@ uint32_t add_carry(uint16_t a_, uint16_t b_) {
     uint32_t c = a + b;
     return ((c & 0xffffu) + (c >> 16u)); // wrap around carry bit
 }
-/* Compute checksum for count bytes starting at addr, using one's complement of one's complement sum*/
-static uint32_t compute_checksum(uint32_t *addr, uint32_t count) {
-  uint64_t sum = 0;
-  while (count > 1) {
-    sum += * addr++;
-    count -= 2;
-  }
-  //if any bytes left, pad the bytes and add
-  if(count > 0) {
-    sum += ((*addr)&htons(0xFF00u));
-  }
-  //Fold sum to 16 bits: add carrier to result
-  while (sum>>16) {
-      sum = (sum & 0xffffu) + (sum >> 16);
-  }
-  //one's complement
-  sum = ~sum;
-  return ((uint16_t)sum);
-}
-uint32_t calc_checksum(vector<unsigned char> msg2) {
-    // if(msg.size() % 2 == 1)
-    //     msg.push_back(0);
 
-    // uint32_t *buf = new uint32_t[msg.size()/2];
-    // for(int i = 0; i < msg.size(); i+=2)
-    //     buf[i/2] = (uint32_t(msg[i]) << 8) + uint32_t(msg[i+1]);
-    // uint32_t ans = compute_checksum(buf, msg.size());
-    // delete buf;
-    // return ans;
-    // vector<uint16_t> msg2;
-    // for(int i = 0; i < msg.size(); i++)
-    //     msg2.push_back((static_cast<unsigned unsigned char>(msg[i])));
-    // cout << '@' << msg2.size() <<'@';
-    // for(uint16_t m: msg2) cout << (m) << '@';
-    // cout << '\n';
+uint32_t calc_checksum(vector<unsigned char> msg2) {
     uint32_t s = 0;
     if( msg2.size() %2 == 1)
         msg2.push_back(0);
     for(unsigned long i = 0; i < msg2.size(); i += 2) {
         uint16_t next_word = ((uint16_t)(msg2[i])<<8u) + (uint16_t)(msg2[i+1]);
-        // cout << "&&" << next_word << ' ';
         s = add_carry(s, next_word);
-        // cout << "^^" << s << ' ';
     }
-    // cout <<  '\n';
-    // cout << '%' << s << '\n';
     uint16_t ret = (uint16_t)(~s & 0xffffu);
-    // cout << "$$" << ret << '\n';
-    // unsigned char *buf = new unsigned char[msg.size()];
-    // for(int i = 0; i < msg.size(); i++)
-    //     buf[i] = msg[i];
-    // auto ans = ip_checksum(buf, msg.size());
-    // delete buf;
-    // return ans;
-    // return ip_checksum(msg.data(), msg.size());
     return ret;
 }
 
@@ -315,6 +271,7 @@ class Sender{
     std::string fname;
     vector<unsigned char> data;
     vector<Chunk> chunks;
+    vector<vector<unsigned char>> chunkbytes;
     vector<bool> unacked_chunks;
     CongestionState cstate;
     int timeoutval = 200000;
@@ -325,6 +282,7 @@ class Sender{
     //timers if reqd
 
     atomic<uint32_t> used_wnd;
+    atomic<uint32_t> cnt_unacked;
 
 public:
     Sender(pair<string, int> myaddr_, pair<string, int> dest_, string fname_)
@@ -340,10 +298,12 @@ public:
         data.reserve(s.st_size);
         data.insert(data.begin(), buf, buf+s.st_size);
         populate_chunks();
+        populate_chunk_bytes();
         unacked_chunks = vector<bool>(chunks.size(), true);
         timestamps_sent.resize(chunks.size());
         timestamps_received.resize(chunks.size());
         timeouts.resize(chunks.size());
+        cnt_unacked = chunks.size();
         timeoutval = 200000;
         rtt = 100000;
         used_wnd = 0;
@@ -359,6 +319,13 @@ public:
             chunks.push_back(Chunk(cdata, seqnum));
             seqnum++;
             ptr = till;
+        }
+    }
+
+    void populate_chunk_bytes() {
+        for(auto &c : chunks) {
+            auto utp_pkt = Packet(1, c.seq_num, c.payload);
+            chunkbytes.push_back(utp_pkt.to_bytes());
         }
     }
 
@@ -378,7 +345,7 @@ public:
             vector<unsigned char> msg(512);
             auto src = std_recvfrom(sock, msg);
             if(src.first == TIMEOUT_IP) {
-                cout << "Timedout\n";
+                // cout << "Timedout\n";
                 continue;
             }
             cout << "Received some handshake.\n";
@@ -414,34 +381,44 @@ public:
 	}
    }
 
-   void listen_for_acks(int sock) {
+   void listen_for_acks(int &sock) {
+
+        close(sock);
+        sock = setup_std_sock(dest, 200000);
+
         while(true) {
             // cout << "Remaining: " << count(unacked_chunks.begin(), unacked_chunks.end(), true) << '\n';
             vector<unsigned char> msg(512);
             std_recvfrom(sock, msg);
             auto ackpkt = Packet(msg);
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK) {
-                cstate.got_acks();
-                unacked_chunks[ackpkt.seqnum] = 0;
-                if(count(unacked_chunks.begin(), unacked_chunks.end(), true) != 0)
+                if(unacked_chunks[ackpkt.seqnum]) {
+                    cstate.got_acks();
+                    unacked_chunks[ackpkt.seqnum] = false;
+                    cnt_unacked--;
                     used_wnd--;
+                }
                 string temp(ackpkt.payload.begin(), ackpkt.payload.end());
-                if(temp == TRANSFER_COMPLETE)
+                if(temp == TRANSFER_COMPLETE or cnt_unacked == 0)
                     break;
             }
             else if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_MDATA_ACK) {
                 string temp(ackpkt.payload.begin(), ackpkt.payload.end());
-                if(temp == TRANSFER_COMPLETE)
+                if(temp == TRANSFER_COMPLETE or cnt_unacked == 0)
                     break;
             }
+            if(cnt_unacked == 0)
+                break;
         }
+        used_wnd = 0;
+        cnt_unacked = 0;
+        // for(int seq_num = 0; seq_num < unacked_chunks.size(); seq_num++)
+        //     unacked_chunks[seq_num] = true;
+        cout << "I know all acks\n";
     }
 
     void send_chunk(int sock, uint32_t seq_num) {
-        // TODO: optimize creating packet each time
-        auto utp_pkt = Packet(1, seq_num, chunks[seq_num].payload);
-        auto bytes= utp_pkt.to_bytes();
-        std_sendto(sock,bytes,dest);
+        std_sendto(sock,chunkbytes[seq_num],dest);
         notify_rtt(timestamps_sent[seq_num].second + 1,seq_num); // increment sent count
         timeouts[seq_num] = (rtt + 4*dev_rtt);        
     }
@@ -464,8 +441,8 @@ public:
     }
     void send_data() {
         auto sock = setup_std_sock(dest);
-        thread thread_ACK(&Sender::listen_for_acks, this, sock);
-        while(unacked_chunks.size() > 0) {
+        thread thread_ACK(&Sender::listen_for_acks, this, ref(sock));
+        while(cnt_unacked > 0) {
             for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 while(used_wnd > cstate.cwnd(rtt))
                     continue; //spin
@@ -477,6 +454,7 @@ public:
                 }
             }
         }
+        cout << "waiting for listener\n";
         thread_ACK.join();
         for(auto &th : sending_threads)
             th.join();
@@ -557,17 +535,17 @@ public:
 	 	}
          
         close(sock);
-        sock = setup_std_sock(myaddr, timeoutval);
+        sock = setup_std_sock(myaddr, 200000);
         auto start_time_stamp = duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count();
 
         while(true) {  // Bye Messages
           auto current_time_stamp = duration_cast<std::chrono::microseconds>(system_clock::now().time_since_epoch()).count();
-          if (current_time_stamp - start_time_stamp > 1000000)
+          if (current_time_stamp - start_time_stamp > 2000000)
             break;
           vector<unsigned char>msg(512);
           auto src = std_recvfrom(sock,msg); // Needs to break after timedout
           if(src.first == TIMEOUT_IP)
-            break;
+            continue;
           auto pkt = Packet(msg);
           if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_MDATA) {
             vector<unsigned char> temp(TRANSFER_COMPLETE.begin(), TRANSFER_COMPLETE.end());  // Initialize payload
@@ -578,9 +556,10 @@ public:
           else if(pkt.verify_checksum() and pkt.type_ == V1_TYPE_DATA)
           {
           	vector<unsigned char> temp(TRANSFER_COMPLETE.begin(), TRANSFER_COMPLETE.end());  // Initialize payload
-          	auto ackpt = Packet(V1_TYPE_DATA_ACK, seqnum, temp);
+          	auto ackpt = Packet(V1_TYPE_DATA_ACK, pkt.seqnum, temp);
           	auto bytes = ackpt.to_bytes();
           	std_sendto(sock, bytes, src);
+            cout << "Sent a bye\n";
           }
         }
         close(sock);
