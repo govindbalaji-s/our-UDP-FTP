@@ -98,7 +98,9 @@ class CongestionState{
     double x;
     atomic<bool> gotacks, timed_out;
     thread timer_thread;
-    bool stayalive = true;
+    uint32_t ssthresh;
+    atomic<bool> stayalive;
+    bool slowstart = true;
 
     double alpha() {
         return pow(10, ceil(log10(L - C())) - tau);
@@ -120,19 +122,38 @@ class CongestionState{
         } while (stayalive);
     }
 
+    void end_slowstart() {
+        if(slowstart){
+            slowstart = false;
+            timer_thread = move(thread(&CongestionState::timer, this));
+        }
+    }
+
 public:
-    CongestionState(double rtt) : timer_thread(&CongestionState::timer, this) {
+    CongestionState(double rtt)  {
+        stayalive = true;
         x = 10.0 / 1000 / rtt * 0.01;
         cout << '#' << x << '#' << cwnd(rtt) << '\n';
     }
+    void set_maxcwnd( uint32_t maxcwnd) {
+        ssthresh = maxcwnd;
+    }
     void new_timeout() {
+        if(slowstart) {
+            end_slowstart();
+        }
         // cout << "timing out\n";
         x = (1-beta) * x;
         timed_out = true;
     }
 
-    void got_acks() {
+    void got_acks(double rtt) {
         gotacks = true;
+        if(slowstart) {
+            x += 1.0/1000/rtt * 0.01;
+            if(cwnd(rtt) >= ssthresh)// based on Linux's autotuning
+                end_slowstart();
+        }
     }
 
     ~CongestionState() {
@@ -143,7 +164,7 @@ public:
     uint32_t cwnd(double rtt) {
         // x pkts/SYN * 1SYN/0.01ms * rtt/us * 1000us/ms = pkts
         // cout << '-' << x / 0.01 * rtt * 1000 << '\n';
-        // return 1'000'000'0;
+        // return 20'000;
         return x / 0.01 * rtt * 1000;
     }
 };
@@ -304,6 +325,7 @@ public:
         timestamps_received.resize(chunks.size());
         timeouts.resize(chunks.size());
         cnt_unacked = chunks.size();
+        cstate.set_maxcwnd(chunks.size());
         timeoutval = 200000;
         rtt = 100000;
         used_wnd = 0;
@@ -393,7 +415,7 @@ public:
             auto ackpkt = Packet(msg);
             if(ackpkt.verify_checksum() and ackpkt.type_ == V1_TYPE_DATA_ACK) {
                 if(unacked_chunks[ackpkt.seqnum]) {
-                    cstate.got_acks();
+                    cstate.got_acks(rtt);
                     unacked_chunks[ackpkt.seqnum] = false;
                     cnt_unacked--;
                     used_wnd--;
@@ -442,7 +464,12 @@ public:
     void send_data() {
         auto sock = setup_std_sock(dest);
         thread thread_ACK(&Sender::listen_for_acks, this, ref(sock));
+        uint32_t percent = 0;
         while(cnt_unacked > 0) {
+            if(cnt_unacked <= (90-percent)*chunks.size()/100) {
+                percent += 10;
+                cout << percent <<"% done\n";
+            }
             for(uint32_t seq_num = 0; seq_num < unacked_chunks.size(); seq_num++) {
                 while(used_wnd > cstate.cwnd(rtt))
                     continue; //spin
