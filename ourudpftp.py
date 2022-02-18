@@ -154,6 +154,11 @@ class Chunk :
         self.seq_num = seq_num
 
 
+
+    vector<char> to_bytes() {
+        vector<char> data;
+        for(int i = 3; i >= 0; i--)
+            data.push_back((numchunks >> (8*i)) & 255);
         
 class Metadata :
     def __init__(self,number,name):
@@ -278,3 +283,4 @@ def calc_checksum(msg:bytes):
         next_word = (msg[i]<<8) + msg[i+1]
         s = add_carry(s, next_word)
     return ~s & 0xffff
+
